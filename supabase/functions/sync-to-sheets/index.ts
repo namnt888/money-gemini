@@ -117,29 +117,37 @@ Deno.serve(async (req: Request) => {
     const fallbackCycle = `${occurredAt.getFullYear()}-${String(occurredAt.getMonth() + 1).padStart(2, "0")}`;
     const cycleTag = (record.persisted_cycle_tag as string) || fallbackCycle;
 
-    // 9. Map transaction type → In / Out
-    const direction = record.type === "income" ? "In" : "Out";
+    // 9. Resolve shop_source:
+    //    - If shop_source exists → use it
+    //    - If income-type and no shop_source → fall back to account name (bank)
+    let shopSource = (record.shop_source as string) || "";
 
-    // 10. Build payload matching Code.js handleSingleTransaction format
-    const row = {
-      action: "create",
-      id: record.id,
-      type: direction,
-      date: record.occurred_at ?? occurredAt.toISOString(),
-      shop: record.notes ?? "",
-      notes: record.raw_input ?? "",
-      amount: record.amount,
-      percent_back: record.cashback_share_percent ?? 0,
-      fixed_back: record.cashback_share_fixed ?? 0,
-      person_id: record.person_id,
-      cycle_tag: cycleTag,
+    const incomeTypes = ["income", "repayment", "transfer_in", "cashback"];
+    if (!shopSource && incomeTypes.includes(record.type as string) && record.account_id) {
+      const { data: account } = await supabase
+        .from("accounts")
+        .select("name")
+        .eq("id", record.account_id)
+        .single();
+      shopSource = account?.name || "";
+    }
+
+    // 10. Build payload matching Code.js expectations
+    const gasPayload = {
+      type: payload.type,
+      table: payload.table,
+      record: {
+        ...record,
+        cycle_tag: cycleTag,
+        shop_source: shopSource,
+      },
     };
 
     // 11. POST to Google Apps Script webhook
     const sheetRes = await fetch(person.sheet_webhook_url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(row),
+      body: JSON.stringify(gasPayload),
     });
 
     // GAS always returns HTTP 200 — check body for error field

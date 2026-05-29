@@ -15,82 +15,69 @@
  * TODO (Task 5+): Implement full logic
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { spawnSync } from "node:child_process"
-import { createClient } from "@supabase/supabase-js"
-import dotenv from "dotenv"
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+import { fileURLToPath } from "url";
+import { resolve, dirname } from "path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const repoRoot = join(__dirname, "..", "..")
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: resolve(__dirname, "../../.env.local") });
 
-// Load .env.local
-const envLocalPath = join(repoRoot, ".env.local")
-if (existsSync(envLocalPath)) {
-  dotenv.config({ path: envLocalPath, override: true })
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in env");
+  process.exit(1);
 }
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-if (!supabaseUrl || !supabaseKey) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local")
-  process.exit(1)
-}
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
-const supabase = createClient(supabaseUrl, supabaseKey)
+async function main() {
+  console.log("Fetching people from Supabase...");
 
-const main = async () => {
-  // 1. Fetch all people that have a clasp_script_id
   const { data: people, error } = await supabase
     .from("people")
     .select("id, name, clasp_script_id")
-    .not("clasp_script_id", "is", null)
+    .not("clasp_script_id", "is", null);
 
   if (error) {
-    console.error("Failed to fetch people:", error.message)
-    process.exit(1)
+    console.error("Failed to fetch people:", error.message);
+    process.exit(1);
   }
 
   if (!people?.length) {
-    console.log("No people with clasp_script_id found.")
-    process.exit(0)
+    console.log("No people with clasp_script_id found.");
+    return;
   }
 
-  console.log(`Found ${people.length} people with clasp_script_id\n`)
-
-  // 2. For each person, update .clasp.json and push
-  const claspPath = join(__dirname, ".clasp.json")
-  const claspCmd = process.platform === "win32" ? "clasp.cmd" : "clasp"
-  let successCount = 0
-  let failCount = 0
-
-  for (const person of people) {
-    console.log(`[${person.name}] Pushing to script ${person.clasp_script_id}...`)
-
-    // Update .clasp.json
-    const config = { scriptId: person.clasp_script_id }
-    writeFileSync(claspPath, JSON.stringify(config, null, 2) + "\n")
-
-    // Push
-    const result = spawnSync(claspCmd, ["push", "--force"], {
-      cwd: __dirname,
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    })
-
-    if (result.status === 0) {
-      console.log(`[${person.name}] ✅ Pushed\n`)
-      successCount++
-    } else {
-      console.error(`[${person.name}] ❌ Push failed\n`)
-      failCount++
-    }
+  console.log(`Found ${people.length} person(s) with clasp_script_id:`);
+  for (const p of people) {
+    console.log(`  - ${p.name} (${p.id}) → ${p.clasp_script_id}`);
   }
 
-  console.log(`\n📊 Summary: ${successCount} succeeded, ${failCount} failed out of ${people.length}`)
-  process.exit(failCount > 0 ? 1 : 0)
+  // TODO (Task 5+): For each person, use clasp to push Code.js
+  // to their Apps Script project.
+  //
+  // Example flow:
+  //   1. Write a temp .clasp.json withscriptId = person.clasp_script_id
+  //   2. Run: npx clasp push -f
+  //   3. Clean up temp file
+  //
+  // For now, just print what would happen.
+  console.log("\n[TODO] Clasp push logic not yet implemented.");
+  console.log("Run `pnpm gs:push` for single-person push in the meantime.");
 }
 
-main()
+main().catch((err) => {
+  console.error("Unexpected error:", err);
+  process.exit(1);
+});

@@ -1,135 +1,264 @@
 /**
- * Money Flow — Google Apps Script (v1.0)
- * Updated: 2026-05-29 09:55:00
- *
- * Nhận JSON POST từ Supabase Edge Function và append vào Google Sheet.
- * Tự động tạo tab theo cycle_tag (VD: "2026-05") nếu chưa tồn tại.
- *
- * Layout: A:ID | B:Type | C:Date | D:Shop | E:Notes
- *         F:Amount | G:%Back | H:đBack | I:ΣBack | J:FinalPrice | K:ShopSource
+ * MoneyFlow V2 - Supabase to Google Sheets Sync
+ * LAYOUT: A-K (data), M-O (summary — fixed, never shifts)
+ * A: ID (Hidden) | B: Type | C: Date | D: Shop (ARRAYFORMULA from K) | E: Notes
+ * F: Amount | G: % Back | H: đ Back | I: Σ Back | J: Final | K: Src (shop_source)
  */
 
 function doPost(e) {
-  try {
-    var data = JSON.parse(e.postData.contents);
-    var action = data.action || 'create';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "Server busy" })).setMimeType(ContentService.MimeType.JSON);
+  }
 
-    if (action === 'create') {
-      return handleCreate(data);
+  try {
+    var payload = JSON.parse(e.postData.contents);
+
+    var action = payload.type;
+    var record = payload.record;
+
+    if (!record || !record.id) {
+      throw new Error("Invalid record data: " + JSON.stringify(payload));
     }
 
-    return jsonResponse({ error: 'Unknown action: ' + action });
+    // 1. TÌM HOẶC TẠO TAB THEO cycle_tag
+    var tabName = record.cycle_tag || "Default";
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(tabName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(tabName);
+    }
+
+    // 2. LUÔN đảm bảo header + format (không skip)
+    ensureSetup(sheet);
+
+    // 3. TÌM ROW THEO ID
+    var rowIndex = findRowById(sheet, record.id);
+
+    // 4. DELETE
+    if (action === "DELETE" || record.status === "void") {
+      if (rowIndex > -1) {
+        sheet.deleteRow(rowIndex);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: "deleted" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 5. MAP DATA
+    var type = "Out";
+    if (record.type === "income" || record.type === "repayment" || record.type === "transfer_in" || record.type === "cashback") {
+      type = "In";
+    }
+
+    var rowData = [
+      record.id,                    // A: ID
+      type,                         // B: Type
+      (record.occurred_at || "").split("T")[0], // C: Date
+      "",                           // D: Shop (ARRAYFORMULA)
+      record.notes || "",           // E: Notes
+      record.amount || 0,           // F: Amount
+      record.cashback_share_percent || 0, // G: % Back
+      record.cashback_share_fixed || 0,   // H: đ Back
+      "",                           // I: Σ Back (ARRAYFORMULA)
+      "",                           // J: Final Price (ARRAYFORMULA)
+      record.shop_source || ""      // K: Src (shop name, NOT raw_input)
+    ];
+
+    // 6. INSERT or UPDATE
+    if (rowIndex > -1) {
+      sheet.getRange(rowIndex, 1, 1, 11).setValues([rowData]);
+    } else {
+      var nextRow = getNextDataRow(sheet);
+      sheet.getRange(nextRow, 1, 1, 11).setValues([rowData]);
+    }
+
+    // 7. ALWAYS re-apply formatting + formulas on affected rows
+    applyAllFormatting(sheet);
+    applyArrayFormulas(sheet);
+
+    return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
+
   } catch (err) {
-    return jsonResponse({ error: err.toString() });
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
 }
 
-function handleCreate(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var cycleTag = data.cycle_tag || Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'yyyy-MM');
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  // Get or create tab by cycle_tag
-  var sheet = ss.getSheetByName(cycleTag);
-  if (!sheet) {
-    sheet = ss.insertSheet(cycleTag);
-    setupSheet(sheet);
-  }
-
-  // Append data row at columns A-K
-  sheet.appendRow([
-    data.id || '',
-    data.type || '',
-    data.date || '',
-    data.shop || '',
-    data.notes || '',
-    data.amount || 0,
-    data.percent_back || 0,
-    data.fixed_back || 0,
-    '',  // Σ Back (formula)
-    '',  // Final Price (formula)
-    data.shop || '',
-  ]);
-
-  // Apply formulas for the new row
+function findRowById(sheet, id) {
   var lastRow = sheet.getLastRow();
-  applyFormulasToRow(sheet, lastRow);
-
-  return jsonResponse({ ok: true, action: 'create' });
+  if (lastRow < 2) return -1;
+  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (ids[i][0] === id) return i + 2;
+  }
+  return -1;
 }
 
-function setupSheet(sheet) {
-  // Header at A1:K1
-  var headers = ['ID', 'Type', 'Date', 'Shop', 'Notes', 'Amount', '% Back', 'đ Back', 'Σ Back', 'Final Price', 'ShopSource'];
-  var headerRange = sheet.getRange('A1:K1');
-  headerRange.setValues([headers]);
-  headerRange.setFontWeight('bold')
-    .setBackground('#4f46e5')
-    .setFontColor('#FFFFFF')
-    .setHorizontalAlignment('center');
-  sheet.setFrozenRows(1);
+function getNextDataRow(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 2;
+  var colA = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = colA.length - 1; i >= 0; i--) {
+    if (colA[i][0] !== "" && colA[i][0] !== null) return i + 3;
+  }
+  return 2;
+}
 
-  // Hide ID (A) and ShopSource (K)
-  try {
+// ---------------------------------------------------------------------------
+// Formatting — ALWAYS runs, never skips
+// ---------------------------------------------------------------------------
+
+/**
+ * Find actual last data row by scanning column A (ignores formatting-only rows)
+ */
+function getLastDataRow(sheet) {
+  var colA = sheet.getRange("A:A").getValues();
+  for (var i = colA.length - 1; i >= 0; i--) {
+    if (colA[i][0] !== "" && colA[i][0] !== null) return i + 1;
+  }
+  return 1;
+}
+
+function applyAllFormatting(sheet) {
+  var lastDataRow = getLastDataRow(sheet);
+  if (lastDataRow < 2) return;
+
+  var numRows = lastDataRow - 1;
+
+  // Color + border each data row individually (only rows with actual data)
+  var types = sheet.getRange(2, 2, numRows, 1).getValues();
+  for (var i = 0; i < numRows; i++) {
+    var row = i + 2;
+    var rowRange = sheet.getRange(row, 1, 1, 11);
+
+    // Black border, all 4 sides + inner lines
+    rowRange.setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+
+    // Font
+    rowRange.setFontSize(11);
+
+    // Background by type
+    if (types[i][0] === "In") {
+      rowRange.setBackground("#dcfce7");
+    } else {
+      rowRange.setBackground(null);
+    }
+  }
+
+  // Summary borders (M2:O5) — all sides + inner lines, black
+  sheet.getRange("M2:O5").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange("M2:O5").setFontSize(11);
+  sheet.getRange("O2:O5").setNumberFormat("#,##0");
+  sheet.getRange("M5:O5").setBackground("#fce7f3").setFontWeight("bold");
+}
+
+// ---------------------------------------------------------------------------
+// Setup — runs EVERY time to ensure headers + summary exist
+// ---------------------------------------------------------------------------
+
+function ensureSetup(sheet) {
+  // === HEADER ROW (always ensure it exists) ===
+  if (sheet.getRange("A1").getValue() === "") {
+    var headers = ["ID", "Type", "Date", "Shop", "Notes", "Amount", "% Back", "đ Back", "Σ Back", "Final Price", "Src"];
+    sheet.getRange("A1:K1").setValues([headers]);
+    sheet.setFrozenRows(1);
+
+    // Hide A and K
     sheet.hideColumns(1);
     sheet.hideColumns(11);
-  } catch (e) {}
+  }
 
-  // Column widths
+  // Always re-apply header style (in case sheet was manually edited)
+  sheet.getRange("A1:K1")
+    .setFontWeight("bold")
+    .setFontSize(11)
+    .setBackground("#4f46e5")
+    .setFontColor("#FFFFFF")
+    .setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // === COLUMN WIDTHS ===
   sheet.setColumnWidth(2, 50);   // B: Type
-  sheet.setColumnWidth(3, 80);   // C: Date
-  sheet.setColumnWidth(4, 60);   // D: Shop
-  sheet.setColumnWidth(5, 300);  // E: Notes
+  sheet.setColumnWidth(3, 85);   // C: Date
+  sheet.setColumnWidth(4, 80);   // D: Shop (compact)
+  sheet.setColumnWidth(5, 180);  // E: Notes
   sheet.setColumnWidth(6, 100);  // F: Amount
-  sheet.setColumnWidth(7, 65);   // G: % Back
-  sheet.setColumnWidth(8, 70);   // H: đ Back
-  sheet.setColumnWidth(9, 75);   // I: Σ Back
-  sheet.setColumnWidth(10, 95);  // J: Final Price
+  sheet.setColumnWidth(7, 55);   // G: % Back
+  sheet.setColumnWidth(8, 75);   // H: đ Back
+  sheet.setColumnWidth(9, 85);   // I: Σ Back
+  sheet.setColumnWidth(10, 100); // J: Final Price
+  sheet.setColumnWidth(12, 15);  // L: gap
 
-  // Conditional formatting for Type column
-  var typeRange = sheet.getRange('B2:B1000');
-  var fullRowRange = sheet.getRange('A2:J1000');
+  // === ALIGNMENT ===
+  // Center align for Type, Date, Shop columns
+  sheet.getRange("B2:B1000").setHorizontalAlignment("center");
+  sheet.getRange("C2:C1000").setHorizontalAlignment("center");
+  sheet.getRange("D2:D1000").setHorizontalAlignment("center");
+  // Right align for amount columns
+  sheet.getRange("F2:F1000").setHorizontalAlignment("right");
+  sheet.getRange("G2:G1000").setHorizontalAlignment("right");
+  sheet.getRange("H2:H1000").setHorizontalAlignment("right");
+  sheet.getRange("I2:I1000").setHorizontalAlignment("right");
+  sheet.getRange("J2:J1000").setHorizontalAlignment("right");
 
-  var ruleIn = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=$B2="In"')
-    .setBackground('#DCFCE7')
-    .setRanges([fullRowRange])
-    .build();
+  // === NUMBER FORMATS ===
+  sheet.getRange("F2:F1000").setNumberFormat("#,##0");
+  sheet.getRange("G2:G1000").setNumberFormat("#,##0");
+  sheet.getRange("H2:H1000").setNumberFormat("#,##0");
+  sheet.getRange("I2:I1000").setNumberFormat("#,##0");
+  sheet.getRange("J2:J1000").setNumberFormat("#,##0");
 
-  var ruleOut = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=$B2="Out"')
-    .setBackground('#FFF1F1')
-    .setRanges([typeRange])
-    .build();
+  // === DEFAULT FONT ===
+  sheet.getRange("A1:Z1000").setFontSize(11);
 
-  sheet.setConditionalFormatRules([ruleIn, ruleOut]);
+  // === SUMMARY TABLE ===
+  if (sheet.getRange("M1").getValue() === "") {
+    sheet.getRange("M1:O1").setValues([["No.", "Summary", "Value"]]);
+    sheet.getRange("M2:N2").setValues([[1, "In (Gross)"]]);
+    sheet.getRange("M3:N3").setValues([[2, "Out (Gross)"]]);
+    sheet.getRange("M4:N4").setValues([[3, "Total Back"]]);
+    sheet.getRange("M5:N5").setValues([[4, "Remains"]]);
+  }
+
+  // Always re-apply summary formulas (they may break on manual edits)
+  sheet.getRange("O2").setFormula('=SUMIFS(F:F;B:B;"In") * -1');
+  sheet.getRange("O3").setFormula('=SUMIFS(F:F;B:B;"Out")');
+  sheet.getRange("O4").setFormula("=SUM(I:I)");
+  sheet.getRange("O5").setFormula("=SUM(J:J)");
+
+  // Summary header style — ALWAYS
+  sheet.getRange("M1:O1")
+    .setFontWeight("bold")
+    .setFontSize(11)
+    .setBackground("#4f46e5")
+    .setFontColor("#FFFFFF")
+    .setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  sheet.setColumnWidth(13, 40);
+  sheet.setColumnWidth(14, 100);
+  sheet.setColumnWidth(15, 100);
 }
 
-function applyFormulasToRow(sheet, row) {
-  // I: Σ Back = (F * G / 100) + H
-  sheet.getRange(row, 9).setFormula('=IF(F' + row + '=""; ""; F' + row + '*G' + row + '/100 + H' + row + ')');
+function applyArrayFormulas(sheet) {
+  // D: Shop — VLOOKUP from K via Shop sheet
+  sheet.getRange("D1").setFormula(
+    '={"Shop"; ARRAYFORMULA(IF(K2:K=""; ""; LET(' +
+    'mappedRaw; IFERROR(VLOOKUP(TRIM(K2:K); Shop!A:B; 2; FALSE); ""); ' +
+    'mapped; IF(mappedRaw=""; TRIM(K2:K); mappedRaw); ' +
+    'IF(LEFT(mapped; 4)="http"; IMAGE(mapped; 1); mapped))))}'
+  );
 
-  // J: Final Price = In: -F + I; Out: F - I
-  sheet.getRange(row, 10).setFormula('=IF(F' + row + '=""; ""; IF(B' + row + '="In"; -F' + row + '+I' + row + '; F' + row + '-I' + row + '))');
-}
+  // I: Σ Back
+  sheet.getRange("I1").setFormula(
+    '={"Σ Back"; ARRAYFORMULA(IF(F2:F=""; ""; (F2:F * G2:G / 100) + H2:H))}'
+  );
 
-function jsonResponse(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
-}
-
-// ===== TEST FUNCTION =====
-// Run this to test manually in Apps Script editor
-function testCreate() {
-  var result = handleCreate({
-    action: "create",
-    id: "test-" + new Date().getTime(),
-    type: "Out",
-    date: "2026-05-29",
-    shop: "Test Shop",
-    notes: "Manual test from Apps Script editor",
-    amount: 50000,
-    percent_back: 5,
-    fixed_back: 2000,
-    cycle_tag: "2026-05"
-  });
-  Logger.log(result);
+  // J: Final Price
+  sheet.getRange("J1").setFormula(
+    '={"Final Price"; ARRAYFORMULA(IF(F2:F=""; ""; IF(B2:B="In"; (-F2:F) + I2:I; F2:F - I2:I)))}'
+  );
 }
