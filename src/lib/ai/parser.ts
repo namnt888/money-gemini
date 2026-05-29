@@ -6,23 +6,28 @@ NHIỆM VỤ: Nhận 1 câu text thô từ user, trả về MỘT object JSON DU
 
 {
   "amount": <number>,          // BIGINT, LUÔN DƯƠNG, không ký tự, không dấu chấm/phẩy. "500k" -> 500000, "2tr" -> 2000000, "1.5tr" -> 1500000
-  "type": <string>,            // Một trong: "income", "expense", "transfer_in", "transfer_out", "debt", "repayment", "cashback"
+  "type": <string>,            // CHỈ 2 giá trị: "income" (tiền vào) hoặc "expense" (tiền ra)
   "person_name": <string|null>,// Tên người nếu có (ví dụ: "Tuấn", "Mẹ"), null nếu không có
+  "account_name": <string|null>, // Tên tài khoản ngân hàng/ví nếu có (ví dụ: "Vpbank", "TCB", "Momo"), null nếu không rõ
+  "shop_name": <string|null>,  // Tên cửa hàng/dịch vụ nếu có (ví dụ: "Shopee", "Youtube", "CGV"), null nếu không rõ
   "category_hint": <string|null>, // Gợi ý category từ text (ví dụ: "ăn uống", "shopee", "lương"), null nếu không rõ
   "occurred_at": <string|null>,   // ISO 8601 timestamp nếu text có thời gian cụ thể, null nếu không có
   "notes": <string|null>,      // Ghi chú ngắn gọn từ text
-  "cycle_tag": <string|null>,  // Format "YYYY-MM" nếu text có keyword "cycle YYYY-MM", null nếu không có
+  "cycle_tag": <string|null>,  // Format "YYYY-MM", null nếu không có
+  "cashback_share_percent": <number>, // Phần trăm cashback nếu text có "hoàn X%", VD "hoàn 5%" -> 5. Nếu không có -> 0
+  "cashback_share_fixed": <number>,   // Số tiền cashback cố định nếu text có "hoàn Xk", VD "hoàn 20k" -> 20000. Nếu không có -> 0
   "raw_input": <string>        // Giữ nguyên text gốc user nhập
 }
 
-## Quy tắc nhận diện type
+## Quy tắc nhận diện type (CHỈ "income" hoặc "expense")
 
-- "vay", "mượn", "cho vay", "nợ" → "debt"
-- "trả nợ", "hoàn nợ", "repay" → "repayment"
+- "vay", "mượn" (mình vay người ta → tiền vào) → "income"
+- "cho vay", "cho mượn" (mình cho người ta mượn → tiền ra) → "expense"
+- "nợ" (mình nợ → tiền vào) → "income"
+- "trả nợ", "hoàn nợ", "repay", "trả" (mình trả → tiền ra) → "expense"
 - "mua", "ăn", "shopee", "chi tiêu", "mất tiền", "thanh toán", "đóng tiền" → "expense"
-- "lương", "thưởng", "nhận tiền", "được trả", "refund" → "income"
-- "chuyển khoản", "chuyển vào", "rút tiền" → suy luận "transfer_in" hoặc "transfer_out"
-- "cashback", "hoàn tiền" → "cashback"
+- "lương", "thưởng", "nhận tiền", "được trả", "refund", "cashback", "hoàn tiền" → "income"
+- "Out" → "expense", "In" → "income"
 
 ## Quy tắc chuyển đổi amount
 
@@ -32,24 +37,59 @@ NHIỆM VỤ: Nhận 1 câu text thô từ user, trả về MỘT object JSON DU
 - "500" (số nhỏ, không có đơn vị) → giữ nguyên 500 (có thể là 500 VND)
 - LUÔN trả về số nguyên dương, KHÔNG bao giờ số âm
 
-## Quy tắc cycle_tag
+## Quy tắc cycle_tag (QUAN TRỌNG)
 
-- Nếu text chứa "cycle 2026-05" → cycle_tag: "2026-05"
-- Nếu text chứa "cycle 05" hoặc "cycle 5" → cycle_tag: dùng năm hiện tại + tháng, ví dụ "2026-05"
+- "cycle 2026-05" → "2026-05"
+- "cycle 05" hoặc "cycle 5" → dùng năm hiện tại + tháng, ví dụ "2026-05"
+- "0426" → "2026-04" (2 số đầu là tháng, 2 số sau là năm)
+- "04/26" hoặc "4/2026" → "2026-04"
+- "05/26" hoặc "5/2026" → "2026-05"
+- Nếu chỉ có 4 chữ số (VD: "0426", "0526") → 2 số đầu là tháng, 2 số sau là năm
+
+## Quy tắc account_name
+
+Trích xuất tên ngân hàng/ví từ text:
+- "Vpbank", "VP", "VPBank" → account_name: "Vpbank"
+- "TCB", "Techcombank", "Techcom" → account_name: "Techcombank"
+- "Momo", "Ví Momo" → account_name: "Momo"
+- "MB", "MBBank" → account_name: "MBBank"
+- Nếu không rõ → null
+
+## Quy tắc shop_name
+
+Trích xuất tên cửa hàng/dịch vụ từ text:
+- "Shopee", "shopee" → shop_name: "Shopee"
+- "Youtube", "YouTube", "Premium" → shop_name: "Youtube"
+- "CGV", "Galaxy" → shop_name: "CGV"
+- "Grab", "GrabFood" → shop_name: "Grab"
+- Tên riêng biệt (viết hoa chữ đầu) có thể là shop_name
+- Nếu không rõ → null
 
 ## Ví dụ
 
 Input: "Tuấn - cycle 2026-05 vay 500k"
-Output: {"amount":500000,"type":"debt","person_name":"Tuấn","category_hint":null,"occurred_at":null,"notes":"vay","cycle_tag":"2026-05","raw_input":"Tuấn - cycle 2026-05 vay 500k"}
+Output: {"amount":500000,"type":"income","person_name":"Tuấn","account_name":null,"shop_name":null,"category_hint":null,"occurred_at":null,"notes":"vay","cycle_tag":"2026-05","cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"Tuấn - cycle 2026-05 vay 500k"}
 
 Input: "ăn phở 45k"
-Output: {"amount":45000,"type":"expense","person_name":null,"category_hint":"ăn uống","occurred_at":null,"notes":"ăn phở","cycle_tag":null,"raw_input":"ăn phở 45k"}
+Output: {"amount":45000,"type":"expense","person_name":null,"account_name":null,"shop_name":null,"category_hint":"ăn uống","occurred_at":null,"notes":"ăn phở","cycle_tag":null,"cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"ăn phở 45k"}
 
 Input: "lương tháng 5 15tr"
-Output: {"amount":15000000,"type":"income","person_name":null,"category_hint":"lương","occurred_at":null,"notes":"lương tháng 5","cycle_tag":null,"raw_input":"lương tháng 5 15tr"}
+Output: {"amount":15000000,"type":"income","person_name":null,"account_name":null,"shop_name":null,"category_hint":"lương","occurred_at":null,"notes":"lương tháng 5","cycle_tag":null,"cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"lương tháng 5 15tr"}
 
 Input: "shopee 250k"
-Output: {"amount":250000,"type":"expense","person_name":null,"category_hint":"shopee","occurred_at":null,"notes":"shopee","cycle_tag":null,"raw_input":"shopee 250k"}
+Output: {"amount":250000,"type":"expense","person_name":null,"account_name":null,"shop_name":"Shopee","category_hint":"shopee","occurred_at":null,"notes":"shopee","cycle_tag":null,"cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"shopee 250k"}
+
+Input: "Tuấn 0426 Vpbank Out 01-04 shopee Youtube 2026-04 [1 slots] [29,243]/6 29.243"
+Output: {"amount":29243,"type":"expense","person_name":"Tuấn","account_name":"Vpbank","shop_name":"Youtube","category_hint":"shopee","occurred_at":"2026-04-01T00:00:00.000Z","notes":"shopee Youtube 2026-04 [1 slots] [29,243]/6","cycle_tag":"2026-04","cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"Tuấn 0426 Vpbank Out 01-04 shopee Youtube 2026-04 [1 slots] [29,243]/6 29.243"}
+
+Input: "mua laptop 15tr hoàn 5%"
+Output: {"amount":15000000,"type":"expense","person_name":null,"account_name":null,"shop_name":null,"category_hint":"mua sắm","occurred_at":null,"notes":"mua laptop","cycle_tag":null,"cashback_share_percent":5,"cashback_share_fixed":0,"raw_input":"mua laptop 15tr hoàn 5%"}
+
+Input: "ăn phở 45k cycle 2026-05 hoàn 20k"
+Output: {"amount":45000,"type":"expense","person_name":null,"account_name":null,"shop_name":null,"category_hint":"ăn uống","occurred_at":null,"notes":"ăn phở","cycle_tag":"2026-05","cashback_share_percent":0,"cashback_share_fixed":20000,"raw_input":"ăn phở 45k cycle 2026-05 hoàn 20k"}
+
+Input: "TCB trả nợ Tuấn 500k"
+Output: {"amount":500000,"type":"expense","person_name":"Tuấn","account_name":"Techcombank","shop_name":null,"category_hint":null,"occurred_at":null,"notes":"trả nợ","cycle_tag":null,"cashback_share_percent":0,"cashback_share_fixed":0,"raw_input":"TCB trả nợ Tuấn 500k"}
 
 QUAN TRỌNG: CHỈ trả về JSON object, KHÔNG có markdown code block, KHÔNG có giải thích.`;
 
@@ -57,10 +97,14 @@ export interface ParsedTransaction {
   amount: number;
   type: string;
   person_name: string | null;
+  account_name: string | null;
+  shop_name: string | null;
   category_hint: string | null;
   occurred_at: string | null;
   notes: string | null;
   cycle_tag: string | null;
+  cashback_share_percent: number;
+  cashback_share_fixed: number;
   raw_input: string;
 }
 
