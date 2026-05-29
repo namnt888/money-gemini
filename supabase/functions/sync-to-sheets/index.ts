@@ -142,12 +142,19 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify(row),
     });
 
+    // GAS always returns HTTP 200 — check body for error field
+    const resData = await sheetRes.json().catch(() => null);
+
     if (!sheetRes.ok) {
-      const body = await sheetRes.text();
-      throw new Error(`Sheets webhook failed (${sheetRes.status}): ${body}`);
+      const rawText = JSON.stringify(resData) ?? "unknown";
+      throw new Error(`Sheets webhook HTTP error (${sheetRes.status}): ${rawText}`);
     }
 
-    return corsResponse({ success: true, cycle_tag: cycleTag });
+    if (resData?.error) {
+      throw new Error(`GAS Error: ${resData.error}`);
+    }
+
+    return corsResponse({ success: true, cycle_tag: cycleTag, gas_response: resData });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[sync-to-sheets] Error:", message);
