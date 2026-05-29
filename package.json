@@ -10,7 +10,8 @@
     "gs:push": "node scripts/sheet-sync/push-sheet.mjs",
     "gs:1": "node scripts/sheet-sync/push-sheet.mjs --index=1",
     "gs:2": "node scripts/sheet-sync/push-sheet.mjs --index=2",
-    "clasp:refresh": "npx clasp login --refresh"
+    "clasp:refresh": "npx clasp login --refresh",
+    "sync:sheets": "node scripts/sheet-sync/sync-all-people.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
