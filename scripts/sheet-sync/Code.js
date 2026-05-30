@@ -1,7 +1,8 @@
 /**
  * MoneyFlow V2 - Supabase to Google Sheets Sync
+ * Last Updated: 2026-05-30 | Task: 05-2-1-Sync-Bonus-Parser
  * LAYOUT: A-K (data), M-O (summary — fixed, never shifts)
- * A: ID (Hidden) | B: Type | C: Date | D: Shop (ARRAYFORMULA from K) | E: Notes
+ * A: ID (Hidden) | B: Type | C: Date (DD-MM) | D: Shop (ARRAYFORMULA from K) | E: Notes
  * F: Amount | G: % Back | H: đ Back | I: Σ Back | J: Final | K: Src (shop_source)
  */
 
