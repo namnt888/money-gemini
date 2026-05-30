@@ -76,7 +76,8 @@ async function main() {
     .from("people")
     .select("id, name, label, clasp_script_id, clasp_deploy_id")
     .eq("is_active", true)
-    .not("clasp_script_id", "is", null);
+    .not("clasp_script_id", "is", null)
+    .neq("clasp_script_id", "");
 
   if (error) {
     console.error("Failed to fetch people:", error.message);
