@@ -26,7 +26,8 @@ interface Subscription {
   account_id: string;
   category_id: string | null;
   name: string;
-  amount: number;
+  amount: number;          // per-slot amount (price_per_cycle / total_slots)
+  price_per_cycle: number; // total service price per cycle (e.g., 170000)
   type: string;
   frequency: string;
   day_of_month: number | null;
@@ -65,9 +66,12 @@ function formatAmount(n: number): string {
 
 /**
  * Build notes string:
- *   "Netflix 05-2026 [200,000/6] slot 1"
+ *   "Youtube 05-2026 [170,000/6] slot 1"
  *
- * Pattern: "{name} {MM-YYYY} [{price_per_slot}/{total_slots}] slot {n}"
+ * Pattern: "{name} {MM-YYYY} [{price_per_cycle}/{total_slots}] slot {n}"
+ * - price_per_cycle = total service price (170,000)
+ * - total_slots = how many people share (6)
+ * - amount = price_per_cycle / total_slots (per-slot, stored in txn)
  */
 function buildNotes(sub: Subscription): string {
   const due = new Date(sub.next_due + "T00:00:00Z");
@@ -75,11 +79,11 @@ function buildNotes(sub: Subscription): string {
   const yyyy = due.getFullYear();
   const cycleTag = `${mm}-${yyyy}`;
 
-  const pricePerSlot = formatAmount(sub.amount);
+  const totalPrice = formatAmount(sub.price_per_cycle);
   const totalSlots = sub.total_slots || 1;
   const slotNum = sub.slot_number || 1;
 
-  let notes = `${sub.name} ${cycleTag} [${pricePerSlot}/${totalSlots}]`;
+  let notes = `${sub.name} ${cycleTag} [${totalPrice}/${totalSlots}]`;
 
   // Only show "slot N" if total_slots > 1
   if (totalSlots > 1) {
