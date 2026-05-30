@@ -14,14 +14,67 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('Flow')
     .addItem('Push Manual Rows to DB', 'pushManualToDB')
+    .addItem('Format & Sort', 'formatAndSortSheet')
     .addToUi();
+}
+
+function formatAndSortSheet() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var lastDataRow = getLastDataRow(sheet);
+  if (lastDataRow < 3) return;
+
+  var numRows = lastDataRow - 1;
+
+  // Hide columns A (ID) and K (Src)
+  try { sheet.hideColumns(1); } catch (e) {}
+  try { sheet.hideColumns(11); } catch (e) {}
+
+  // Apply borders + color to all data rows
+  var types = sheet.getRange(2, 2, numRows, 1).getValues();
+  var backgrounds = sheet.getRange(2, 2, numRows, 4).getBackgrounds();
+
+  for (var i = 0; i < numRows; i++) {
+    var row = i + 2;
+    var rowRange = sheet.getRange(row, 1, 1, 11);
+    rowRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    rowRange.setFontSize(11);
+
+    // Preserve manual highlight
+    var hasHighlight = false;
+    for (var c = 0; c < 4; c++) {
+      var bg = backgrounds[i][c];
+      if (bg && bg !== '#dcfce7' && bg !== '#ffffff' && bg !== '') {
+        hasHighlight = true;
+        break;
+      }
+    }
+
+    if (!hasHighlight) {
+      if (types[i][0] === 'In') {
+        rowRange.setBackground('#dcfce7');
+      } else {
+        rowRange.setBackground(null);
+      }
+    }
+  }
+
+  // Sort A:K by date (column C, ascending)
+  // Only sort data range A2:K(lastRow), NOT M:O
+  if (numRows > 1) {
+    sheet.getRange(2, 1, numRows, 11).sort({ column: 3, ascending: true });
+  }
+
+  // Auto-resize column E (Notes)
+  sheet.autoResizeColumn(5);
+
+  SpreadsheetApp.getUi().alert('Formatted & sorted by date (A:K only, M:O preserved).');
 }
 
 function pushManualToDB() {
   var sheet = SpreadsheetApp.getActiveSheet();
   var tabName = sheet.getName();
 
-  // Extract cycle from tab name (e.g., "2026-06" -> "2026-06")
+  // Extract cycle from tab name
   var cycleMatch = tabName.match(/(\d{4}-\d{2})/);
   if (!cycleMatch) {
     SpreadsheetApp.getUi().alert('Error: Tab name must contain YYYY-MM format (e.g., "2026-06")');
@@ -29,13 +82,14 @@ function pushManualToDB() {
   }
   var cycle = cycleMatch[1];
 
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) {
+  // Use getLastDataRow (checks column A only, not M:O summary)
+  var lastDataRow = getLastDataRow(sheet);
+  if (lastDataRow < 2) {
     SpreadsheetApp.getUi().alert('No data rows found.');
     return;
   }
 
-  var data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  var data = sheet.getRange(2, 1, lastDataRow - 1, 11).getValues();
   var manualRows = [];
   var totalIn = 0;
   var totalOut = 0;
@@ -43,12 +97,12 @@ function pushManualToDB() {
   var outCount = 0;
 
   for (var i = 0; i < data.length; i++) {
-    var id = data[i][0];        // A: ID
-    var type = data[i][1];      // B: Type (In/Out)
-    var amount = data[i][5];    // F: Amount
+    var id = data[i][0];
+    var type = data[i][1];
+    var amount = data[i][5];
 
-    // Find rows with empty ID (manual input)
-    if (!id || id === '') {
+    // Only rows with empty ID AND has a Type value (In/Out)
+    if ((!id || id === '') && (type === 'In' || type === 'Out')) {
       manualRows.push({ row: i + 2, type: type, amount: amount });
       if (type === 'In') {
         totalIn += amount;
@@ -70,16 +124,13 @@ function pushManualToDB() {
     var r = manualRows[j].row;
     var rowRange = sheet.getRange(r, 1, 1, 11);
 
-    // Apply border
     rowRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     rowRange.setFontSize(11);
 
-    // Color: green for In, default for Out
     if (manualRows[j].type === 'In') {
       rowRange.setBackground('#dcfce7');
     }
 
-    // Mark as synced (column A)
     sheet.getRange(r, 1).setValue('synced-lump-sum');
   }
 
@@ -89,36 +140,33 @@ function pushManualToDB() {
   if (totalOut > 0) summaryParts.push(outCount + ' Out: ' + totalOut.toLocaleString());
   var summaryNotes = 'Lump sum ' + cycle + ' [' + summaryParts.join(', ') + '] - manual';
 
-  // Call lump-sum API for In transactions
+  // Call lump-sum API
+  var apiUrl = 'https://your-app.vercel.app/api/transactions/lump-sum';
+
   if (totalIn > 0) {
-    var payloadIn = {
-      cycle: cycle,
-      amount: totalIn,
-      type: 'income',
-      notes: summaryNotes
-    };
-    // TODO: Replace with actual API URL
-    // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
-    //   method: 'post',
-    //   contentType: 'application/json',
-    //   payload: JSON.stringify(payloadIn)
-    // });
+    try {
+      UrlFetchApp.fetch(apiUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ cycle: cycle, amount: totalIn, type: 'income', notes: summaryNotes })
+      });
+    } catch (e) {
+      SpreadsheetApp.getUi().alert('API Error (In): ' + e.message);
+      return;
+    }
   }
 
-  // Call lump-sum API for Out transactions
   if (totalOut > 0) {
-    var payloadOut = {
-      cycle: cycle,
-      amount: totalOut,
-      type: 'expense',
-      notes: summaryNotes
-    };
-    // TODO: Replace with actual API URL
-    // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
-    //   method: 'post',
-    //   contentType: 'application/json',
-    //   payload: JSON.stringify(payloadOut)
-    // });
+    try {
+      UrlFetchApp.fetch(apiUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ cycle: cycle, amount: totalOut, type: 'expense', notes: summaryNotes })
+      });
+    } catch (e) {
+      SpreadsheetApp.getUi().alert('API Error (Out): ' + e.message);
+      return;
+    }
   }
 
   SpreadsheetApp.getUi().alert(
@@ -201,6 +249,12 @@ function doPost(e) {
     // 7. ALWAYS re-apply formatting + formulas on affected rows
     applyAllFormatting(sheet);
     applyArrayFormulas(sheet);
+
+    // 8. Sort by date (column C, ascending) — A:K only, preserve M:O
+    var lastRow = getLastDataRow(sheet);
+    if (lastRow > 2) {
+      sheet.getRange(2, 1, lastRow - 1, 11).sort({ column: 3, ascending: true });
+    }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
 
