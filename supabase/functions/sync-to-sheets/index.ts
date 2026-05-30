@@ -75,7 +75,12 @@ Deno.serve(async (req: Request) => {
 
     const record = payload.record;
 
-    // 5. Need a person_id to route to the right sheet
+    // 5. Second gate: skip if is_sync_sheet is false
+    if (record.is_sync_sheet === false) {
+      return corsResponse({ skipped: true, reason: "is_sync_sheet = false" });
+    }
+
+    // 6. Need a person_id to route to the right sheet
     if (!record.person_id) {
       return corsResponse({ skipped: true, reason: "No person_id on record" });
     }
