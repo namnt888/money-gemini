@@ -155,6 +155,9 @@ function applyAllFormatting(sheet) {
   sheet.getRange("M2:O5").setFontSize(11);
   sheet.getRange("O2:O5").setNumberFormat("#,##0");
   sheet.getRange("M5:O5").setBackground("#fce7f3").setFontWeight("bold");
+
+  // Auto-resize column E (Notes) to fit longest content
+  sheet.autoResizeColumn(5);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,10 +171,14 @@ function ensureSetup(sheet) {
     sheet.getRange("A1:K1").setValues([headers]);
     sheet.setFrozenRows(1);
 
-    // Hide A and K
+    // Hide A and K (always, not just on first setup)
     sheet.hideColumns(1);
     sheet.hideColumns(11);
   }
+
+  // Always ensure A and K are hidden (in case sheet was unhidden manually)
+  try { sheet.hideColumns(1); } catch (e) {}
+  try { sheet.hideColumns(11); } catch (e) {}
 
   // Always re-apply header style (in case sheet was manually edited)
   sheet.getRange("A1:K1")
@@ -185,7 +192,7 @@ function ensureSetup(sheet) {
   sheet.setColumnWidth(2, 50);   // B: Type
   sheet.setColumnWidth(3, 85);   // C: Date
   sheet.setColumnWidth(4, 80);   // D: Shop (compact)
-  sheet.setColumnWidth(5, 180);  // E: Notes
+  // E: Notes — auto-resize to fit content (see applyAllFormatting)
   sheet.setColumnWidth(6, 100);  // F: Amount
   sheet.setColumnWidth(7, 55);   // G: % Back
   sheet.setColumnWidth(8, 75);   // H: đ Back
@@ -200,6 +207,8 @@ function ensureSetup(sheet) {
   sheet.getRange("D2:D1000").setHorizontalAlignment("center");
   // Right align for amount columns
   sheet.getRange("F2:F1000").setHorizontalAlignment("right");
+  // Wrap text for Notes column (E)
+  sheet.getRange("E2:E1000").setWrap(true);
   sheet.getRange("G2:G1000").setHorizontalAlignment("right");
   sheet.getRange("H2:H1000").setHorizontalAlignment("right");
   sheet.getRange("I2:I1000").setHorizontalAlignment("right");
