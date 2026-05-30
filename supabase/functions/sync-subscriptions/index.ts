@@ -90,6 +90,11 @@ function buildNotes(sub: Subscription): string {
   return `${sub.services.name} ${yyyy}-${mm}`;
 }
 
+// Helper: unused but kept for reference
+function _formatAmount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
 // ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
@@ -193,11 +198,12 @@ Deno.serve(async (req: Request) => {
         const txnNotes = buildNotes(sub);
 
         // 5b. Create transaction with shop_source = service name
-        //     Use service price (single source of truth)
+        //     amount = price_per_cycle / total_slots (per-slot share)
+        const perSlotAmount = Math.round(sub.services.price_per_cycle / sub.services.total_slots);
         const { data: txn, error: txnErr } = await supabase
           .from("transactions")
           .insert({
-            amount: sub.services.price_per_cycle,
+            amount: perSlotAmount,
             type: sub.type,
             account_id: sub.services.account_id,
             category_id: sub.category_id,
