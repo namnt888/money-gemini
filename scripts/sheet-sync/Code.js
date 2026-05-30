@@ -251,9 +251,11 @@ function doPost(e) {
     applyArrayFormulas(sheet);
 
     // 8. Sort by date (column C, ascending) — A:K only, preserve M:O
-    var lastRow = getLastDataRow(sheet);
-    if (lastRow > 2) {
-      sheet.getRange(2, 1, lastRow - 1, 11).sort({ column: 3, ascending: true });
+    var maxRow = sheet.getLastRow();
+    var dataRows = getLastDataRow(sheet);
+    var sortEndRow = Math.min(maxRow, dataRows);
+    if (sortEndRow > 2) {
+      sheet.getRange(2, 1, sortEndRow - 1, 11).sort({ column: 3, ascending: true });
     }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
