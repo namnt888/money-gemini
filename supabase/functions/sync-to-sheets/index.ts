@@ -65,18 +65,25 @@ Deno.serve(async (req: Request) => {
       return corsResponse({ error: "Invalid JSON body" }, 400);
     }
 
-    // 4. Only handle transaction INSERTs
-    if (payload.type !== "INSERT" || payload.table !== "transactions") {
+    // 4. Handle INSERT and DELETE for transactions
+    if (payload.table !== "transactions") {
       return corsResponse({
         skipped: true,
-        reason: `Ignored: type=${payload.type} table=${payload.table}`,
+        reason: `Ignored: table=${payload.table}`,
+      });
+    }
+
+    if (payload.type !== "INSERT" && payload.type !== "DELETE") {
+      return corsResponse({
+        skipped: true,
+        reason: `Ignored: type=${payload.type}`,
       });
     }
 
     const record = payload.record;
 
-    // 5. Second gate: skip if is_sync_sheet is false
-    if (record.is_sync_sheet === false) {
+    // 5. Second gate: skip INSERT if is_sync_sheet is false
+    if (payload.type === "INSERT" && record.is_sync_sheet === false) {
       return corsResponse({ skipped: true, reason: "is_sync_sheet = false" });
     }
 
