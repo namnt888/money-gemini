@@ -90,6 +90,11 @@ function buildNotes(sub: Subscription): string {
     notes += ` slot ${slotNum}`;
   }
 
+  // Append custom notes if provided (e.g., "for Tuan 2026 only")
+  if (sub.notes) {
+    notes += ` ${sub.notes}`;
+  }
+
   return notes;
 }
 
