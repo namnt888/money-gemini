@@ -20,14 +20,21 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // Types
 // ---------------------------------------------------------------------------
 
+interface Service {
+  id: string;
+  name: string;
+  code: string;
+  price_per_cycle: number;
+  total_slots: number;
+}
+
 interface Subscription {
   id: string;
   person_id: string;
   account_id: string;
   category_id: string | null;
+  service_id: string;
   name: string;
-  amount: number;          // per-slot amount (price_per_cycle / total_slots)
-  price_per_cycle: number; // total service price per cycle (e.g., 170000)
   type: string;
   frequency: string;
   day_of_month: number | null;
@@ -37,6 +44,7 @@ interface Subscription {
   slot_number: number | null;
   total_slots: number | null;
   prepaid_until: string | null;
+  services: Service; // joined from services table
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +75,12 @@ function formatAmount(n: number): string {
 
 /**
  * Build notes string:
- *   "Youtube 05-2026 [170,000/6] slot 1"
+ *   "Youtube 05-2026 [175,456/6] slot 1"
  *
  * Pattern: "{name} {MM-YYYY} [{price_per_cycle}/{total_slots}] slot {n}"
- * - price_per_cycle = total service price (170,000)
- * - total_slots = how many people share (6)
- * - amount = price_per_cycle / total_slots (per-slot, stored in txn)
+ * - price_per_cycle = from services table (current price)
+ * - total_slots = from services table
+ * - amount = price_per_cycle (per-slot, stored in txn)
  */
 function buildNotes(sub: Subscription): string {
   const due = new Date(sub.next_due + "T00:00:00Z");
@@ -80,11 +88,12 @@ function buildNotes(sub: Subscription): string {
   const yyyy = due.getFullYear();
   const cycleTag = `${mm}-${yyyy}`;
 
-  const totalPrice = formatAmount(sub.price_per_cycle);
-  const totalSlots = sub.total_slots || 1;
+  const service = sub.services;
+  const totalPrice = formatAmount(service.price_per_cycle);
+  const totalSlots = service.total_slots;
   const slotNum = sub.slot_number || 1;
 
-  let notes = `${sub.name} ${cycleTag} [${totalPrice}/${totalSlots}]`;
+  let notes = `${service.name} ${cycleTag} [${totalPrice}/${totalSlots}]`;
 
   // Only show "slot N" if total_slots > 1
   if (totalSlots > 1) {
@@ -172,9 +181,10 @@ Deno.serve(async (req: Request) => {
     const today = toDateString(new Date());
 
     // 4. Find active subscriptions due today or earlier (exclude prepaid)
+    //    Join services table for current pricing
     const { data: subs, error: subErr } = await supabase
       .from("subscriptions")
-      .select("*")
+      .select("*, services(id, name, code, price_per_cycle, total_slots)")
       .eq("is_active", true)
       .lte("next_due", today)
       .or(`prepaid_until.is.null,prepaid_until.lt.${today}`);
@@ -200,18 +210,19 @@ Deno.serve(async (req: Request) => {
         // 5a. Build notes with new format
         const txnNotes = buildNotes(sub);
 
-        // 5b. Create transaction with shop_source = subscription name
+        // 5b. Create transaction with shop_source = service name
+        //     Use service price (single source of truth)
         const { data: txn, error: txnErr } = await supabase
           .from("transactions")
           .insert({
-            amount: sub.amount,
+            amount: sub.services.price_per_cycle,
             type: sub.type,
             account_id: sub.account_id,
             category_id: sub.category_id,
             person_id: sub.person_id,
             occurred_at: sub.next_due + "T00:00:00Z",
             notes: txnNotes,
-            shop_source: sub.name,
+            shop_source: sub.services.name,
             raw_input: `[subscription:${sub.id}]`,
             status: "posted",
           })
@@ -241,7 +252,7 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        results.push({ id: sub.id, name: sub.name, txn_id: txn.id });
+        results.push({ id: sub.id, name: sub.services.name, txn_id: txn.id });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         errors.push({ id: sub.id, error: message });

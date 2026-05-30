@@ -6,15 +6,19 @@ Hệ thống quản lý subscriptions (Youtube, iCloud) cho nhiều người sha
 
 ## Data Model
 
+### Services (single source of truth for pricing)
+- `name`: tên dịch vụ ('Youtube', 'iCloud')
+- `code`: mã ('yt', 'ic')
+- `price_per_cycle`: giá per slot
+- `total_slots`: tổng số người share
+
 ### People
 - `name`: không dấu (query key)
 - `label`: có dấu (display)
 
 ### Subscriptions
-- `amount`: giá per-slot
-- `price_per_cycle`: giá tổng service
+- `service_id`: FK → services (lấy giá từ đây)
 - `slot_number`: slot thứ mấy
-- `total_slots`: tổng số người share
 - `next_due`: ngày tạo txn tiếp theo
 - `prepaid_until`: ngày hết hạn prepaid (NULL = không prepaid)
 
@@ -24,8 +28,16 @@ Hệ thống quản lý subscriptions (Youtube, iCloud) cho nhiều người sha
 pg_cron (every 6h)
   → Edge Function sync-subscriptions
     → Query: is_active=true, next_due<=today, prepaid_until IS NULL OR prepaid_until < today
-    → For each: INSERT transaction, UPDATE next_due += 1 month
+    → JOIN services table for current pricing
+    → For each: INSERT transaction (amount = services.price_per_cycle), UPDATE next_due += 1 month
     → Trigger sync-to-sheets → Apps Script → Google Sheets
+```
+
+## Price Change
+
+```sql
+-- Youtube tăng giá: update 1 row, tất cả subscriptions tự động lấy giá mới
+UPDATE services SET price_per_cycle = 180000 WHERE code = 'yt';
 ```
 
 ## Prepaid Flow
@@ -40,7 +52,7 @@ VALUES (2105472, 'income', PERSON_ID, ACCOUNT_ID, 'Hương prepaid Youtube 06/20
 -- Step 2: Set prepaid_until + skip next_due
 UPDATE subscriptions
 SET prepaid_until = '2027-06-01', next_due = '2027-06-01'
-WHERE person_id = PERSON_ID AND name = 'Youtube';
+WHERE person_id = PERSON_ID AND service_id = (SELECT id FROM services WHERE code = 'yt');
 ```
 
 ### When prepaid expires
@@ -52,7 +64,7 @@ Cron automatically resumes creating expense txns. User needs to pay again or ext
 ```sql
 UPDATE subscriptions
 SET prepaid_until = '2028-06-01', next_due = '2028-06-01'
-WHERE person_id = PERSON_ID AND name = 'Youtube';
+WHERE person_id = PERSON_ID AND service_id = (SELECT id FROM services WHERE code = 'yt');
 ```
 
 ### Cancel prepaid (refund)
@@ -60,8 +72,15 @@ WHERE person_id = PERSON_ID AND name = 'Youtube';
 ```sql
 UPDATE subscriptions
 SET prepaid_until = NULL, next_due = CURRENT_DATE
-WHERE person_id = PERSON_ID AND name = 'Youtube';
+WHERE person_id = PERSON_ID AND service_id = (SELECT id FROM services WHERE code = 'yt');
 ```
+
+## Current Services
+
+| Code | Name | Per slot | Total (6 slots) |
+|------|------|----------|-----------------|
+| yt | Youtube | 175,456 | 1,052,736 |
+| ic | iCloud | 258,900 | 1,553,400 |
 
 ## Current Slots (2026-06)
 
@@ -69,13 +88,6 @@ WHERE person_id = PERSON_ID AND name = 'Youtube';
 |---------|-------|--------|
 | Youtube | 6 | Lâm(2), Tuấn(1), Me(1), Nam(1), Hương(1) |
 | iCloud | 6 | Lâm(2), Me(1), Ngọc(1), Thảo(1), My(1) |
-
-## Pricing
-
-| Service | Per slot | Total (6 slots) |
-|---------|----------|-----------------|
-| Youtube | 175,456 | 1,052,736 |
-| iCloud | 258,900 | 1,553,400 |
 
 ## API Endpoints
 
@@ -86,4 +98,4 @@ WHERE person_id = PERSON_ID AND name = 'Youtube';
 
 ## RPC Functions
 
-- `reset_test_subscriptions()` - Reset all subscriptions for testing
+- `reset_test_subscriptions()` - Reset all subscriptions for testing (uses service_id)
