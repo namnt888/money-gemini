@@ -6,6 +6,107 @@
  * F: Amount | G: % Back | H: đ Back | I: Σ Back | J: Final | K: Src (shop_source)
  */
 
+// ---------------------------------------------------------------------------
+// UI Menu — runs when spreadsheet opens
+// ---------------------------------------------------------------------------
+
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Money Flow')
+    .addItem('Push Manual Rows to DB', 'pushManualToDB')
+    .addToUi();
+}
+
+function pushManualToDB() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var tabName = sheet.getName();
+
+  // Extract cycle from tab name (e.g., "2026-06" -> "2026-06")
+  var cycleMatch = tabName.match(/(\d{4}-\d{2})/);
+  if (!cycleMatch) {
+    SpreadsheetApp.getUi().alert('Error: Tab name must contain YYYY-MM format (e.g., "2026-06")');
+    return;
+  }
+  var cycle = cycleMatch[1];
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    SpreadsheetApp.getUi().alert('No data rows found.');
+    return;
+  }
+
+  var data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  var manualRows = [];
+  var totalIn = 0;
+  var totalOut = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var id = data[i][0];        // A: ID
+    var type = data[i][1];      // B: Type (In/Out)
+    var amount = data[i][5];    // F: Amount
+
+    // Find rows with empty ID (manual input)
+    if (!id || id === '') {
+      manualRows.push(i + 2); // row number (1-indexed)
+      if (type === 'In') {
+        totalIn += amount;
+      } else {
+        totalOut += amount;
+      }
+    }
+  }
+
+  if (manualRows.length === 0) {
+    SpreadsheetApp.getUi().alert('No manual rows found (all rows have ID).');
+    return;
+  }
+
+  // Mark rows as synced
+  for (var j = 0; j < manualRows.length; j++) {
+    sheet.getRange(manualRows[j], 1).setValue('synced-lump-sum');
+  }
+
+  // Call lump-sum API for In transactions
+  if (totalIn > 0) {
+    var payloadIn = {
+      cycle: cycle,
+      amount: totalIn,
+      type: 'income',
+      notes: 'Gộp tay trên Sheet ' + cycle + ' (' + manualRows.length + ' rows)'
+    };
+    // TODO: Replace with actual API URL
+    // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
+    //   method: 'post',
+    //   contentType: 'application/json',
+    //   payload: JSON.stringify(payloadIn)
+    // });
+  }
+
+  // Call lump-sum API for Out transactions
+  if (totalOut > 0) {
+    var payloadOut = {
+      cycle: cycle,
+      amount: totalOut,
+      type: 'expense',
+      notes: 'Gộp tay trên Sheet ' + cycle + ' (' + manualRows.length + ' rows)'
+    };
+    // TODO: Replace with actual API URL
+    // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
+    //   method: 'post',
+    //   contentType: 'application/json',
+    //   payload: JSON.stringify(payloadOut)
+    // });
+  }
+
+  SpreadsheetApp.getUi().alert(
+    'Done!\n\n' +
+    'Manual rows: ' + manualRows.length + '\n' +
+    'Total In: ' + totalIn.toLocaleString() + '\n' +
+    'Total Out: ' + totalOut.toLocaleString() + '\n' +
+    'Cycle: ' + cycle
+  );
+}
+
 function doPost(e) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
