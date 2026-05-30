@@ -20,8 +20,21 @@ function onOpen() {
 
 function formatAndSortSheet() {
   var sheet = SpreadsheetApp.getActiveSheet();
-  var lastDataRow = getLastDataRow(sheet);
-  if (lastDataRow < 3) return;
+
+  // Find actual data range (column B = Type, stops at first empty)
+  var colB = sheet.getRange('B:B').getValues();
+  var lastDataRow = 1;
+  for (var i = colB.length - 1; i >= 0; i--) {
+    if (colB[i][0] === 'In' || colB[i][0] === 'Out') {
+      lastDataRow = i + 1;
+      break;
+    }
+  }
+
+  if (lastDataRow < 3) {
+    SpreadsheetApp.getUi().alert('No data rows to format.');
+    return;
+  }
 
   var numRows = lastDataRow - 1;
 
@@ -58,10 +71,9 @@ function formatAndSortSheet() {
     }
   }
 
-  // Sort A:K by date (column C, ascending)
-  // Only sort data range A2:K(lastRow), NOT M:O
+  // Sort A:K by date (column C, ascending) — preserve M:O
   if (numRows > 1) {
-    sheet.getRange(2, 1, numRows, 11).sort({ column: 3, ascending: true });
+    sheet.getRange('A2:K' + lastDataRow).sort({ column: 3, ascending: true });
   }
 
   // Auto-resize column E (Notes)
@@ -251,11 +263,16 @@ function doPost(e) {
     applyArrayFormulas(sheet);
 
     // 8. Sort by date (column C, ascending) — A:K only, preserve M:O
-    var maxRow = sheet.getLastRow();
-    var dataRows = getLastDataRow(sheet);
-    var sortEndRow = Math.min(maxRow, dataRows);
-    if (sortEndRow > 2) {
-      sheet.getRange(2, 1, sortEndRow - 1, 11).sort({ column: 3, ascending: true });
+    var colB = sheet.getRange('B:B').getValues();
+    var sortLastRow = 1;
+    for (var si = colB.length - 1; si >= 0; si--) {
+      if (colB[si][0] === 'In' || colB[si][0] === 'Out') {
+        sortLastRow = si + 1;
+        break;
+      }
+    }
+    if (sortLastRow > 2) {
+      sheet.getRange('A2:K' + sortLastRow).sort({ column: 3, ascending: true });
     }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
