@@ -21,15 +21,8 @@ function onOpen() {
 function formatAndSortSheet() {
   var sheet = SpreadsheetApp.getActiveSheet();
 
-  // Find actual data range (column B = Type, stops at first empty)
-  var colB = sheet.getRange('B:B').getValues();
-  var lastDataRow = 1;
-  for (var i = colB.length - 1; i >= 0; i--) {
-    if (colB[i][0] === 'In' || colB[i][0] === 'Out') {
-      lastDataRow = i + 1;
-      break;
-    }
-  }
+  // Find actual data range (column A = ID, stops at first empty)
+  var lastDataRow = getLastDataRow(sheet);
 
   if (lastDataRow < 3) {
     SpreadsheetApp.getUi().alert('No data rows to format.');
@@ -263,16 +256,9 @@ function doPost(e) {
     applyArrayFormulas(sheet);
 
     // 8. Sort by date (column C, ascending) — A:K only, preserve M:O
-    var colB = sheet.getRange('B:B').getValues();
-    var sortLastRow = 1;
-    for (var si = colB.length - 1; si >= 0; si--) {
-      if (colB[si][0] === 'In' || colB[si][0] === 'Out') {
-        sortLastRow = si + 1;
-        break;
-      }
-    }
-    if (sortLastRow > 2) {
-      sheet.getRange('A2:K' + sortLastRow).sort({ column: 3, ascending: true });
+    var dataLastRow = Math.max(getLastDataRow(sheet), 2);
+    if (dataLastRow > 2) {
+      sheet.getRange('A2:K' + dataLastRow).sort({ column: 3, ascending: true });
     }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
