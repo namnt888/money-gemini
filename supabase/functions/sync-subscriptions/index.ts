@@ -26,6 +26,7 @@ interface Service {
   code: string;
   price_per_cycle: number;
   total_slots: number;
+  account_id: string;
 }
 
 interface Subscription {
@@ -75,37 +76,18 @@ function formatAmount(n: number): string {
 
 /**
  * Build notes string:
- *   "Youtube 05-2026 [175,456/6] slot 1"
+ *   "Youtube 2026-05"
  *
- * Pattern: "{name} {MM-YYYY} [{price_per_cycle}/{total_slots}] slot {n}"
- * - price_per_cycle = from services table (current price)
- * - total_slots = from services table
- * - amount = price_per_cycle (per-slot, stored in txn)
+ * Pattern: "{service_name} {YYYY-MM}"
+ * - service_name = from services table
+ * - cycle = from next_due date
  */
 function buildNotes(sub: Subscription): string {
   const due = new Date(sub.next_due + "T00:00:00Z");
   const mm = String(due.getMonth() + 1).padStart(2, "0");
   const yyyy = due.getFullYear();
-  const cycleTag = `${mm}-${yyyy}`;
 
-  const service = sub.services;
-  const totalPrice = formatAmount(service.price_per_cycle);
-  const totalSlots = service.total_slots;
-  const slotNum = sub.slot_number || 1;
-
-  let notes = `${service.name} ${cycleTag} [${totalPrice}/${totalSlots}]`;
-
-  // Only show "slot N" if total_slots > 1
-  if (totalSlots > 1) {
-    notes += ` slot ${slotNum}`;
-  }
-
-  // Append custom notes if provided (e.g., "for Tuan 2026 only")
-  if (sub.notes) {
-    notes += ` ${sub.notes}`;
-  }
-
-  return notes;
+  return `${sub.services.name} ${yyyy}-${mm}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +166,7 @@ Deno.serve(async (req: Request) => {
     //    Join services table for current pricing
     const { data: subs, error: subErr } = await supabase
       .from("subscriptions")
-      .select("*, services(id, name, code, price_per_cycle, total_slots)")
+      .select("*, services(id, name, code, price_per_cycle, total_slots, account_id)")
       .eq("is_active", true)
       .lte("next_due", today)
       .or(`prepaid_until.is.null,prepaid_until.lt.${today}`);
@@ -217,7 +199,7 @@ Deno.serve(async (req: Request) => {
           .insert({
             amount: sub.services.price_per_cycle,
             type: sub.type,
-            account_id: sub.account_id,
+            account_id: sub.services.account_id,
             category_id: sub.category_id,
             person_id: sub.person_id,
             occurred_at: sub.next_due + "T00:00:00Z",
