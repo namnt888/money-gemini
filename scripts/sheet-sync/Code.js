@@ -242,7 +242,8 @@ function applyAllFormatting(sheet) {
 
   // Color + border each data row individually (only rows with actual data)
   var types = sheet.getRange(2, 2, numRows, 1).getValues();
-  var backgrounds = sheet.getRange(2, 1, numRows, 1).getBackgrounds();
+  // Check backgrounds across columns B-E (more reliable than just column A)
+  var backgrounds = sheet.getRange(2, 2, numRows, 4).getBackgrounds();
 
   for (var i = 0; i < numRows; i++) {
     var row = i + 2;
@@ -254,12 +255,17 @@ function applyAllFormatting(sheet) {
     // Font
     rowRange.setFontSize(11);
 
-    // Preserve manual highlighting (yellow, custom colors)
-    // Only apply type-based color if background is default (white/null) or system green
-    var currentBg = backgrounds[i][0];
-    var isManualHighlight = currentBg && currentBg !== "#dcfce7" && currentBg !== "#ffffff" && currentBg !== "";
+    // Preserve manual highlighting: check if ANY cell in B-E has custom color
+    var hasHighlight = false;
+    for (var c = 0; c < 4; c++) {
+      var bg = backgrounds[i][c];
+      if (bg && bg !== "#dcfce7" && bg !== "#ffffff" && bg !== "") {
+        hasHighlight = true;
+        break;
+      }
+    }
 
-    if (!isManualHighlight) {
+    if (!hasHighlight) {
       if (types[i][0] === "In") {
         rowRange.setBackground("#dcfce7");
       } else {
