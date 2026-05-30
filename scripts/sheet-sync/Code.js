@@ -466,14 +466,12 @@ function ensureSetup(sheet) {
   // === DEFAULT FONT ===
   sheet.getRange("A1:Z1000").setFontSize(11);
 
-  // === SUMMARY TABLE ===
-  if (sheet.getRange("M1").getValue() === "") {
-    sheet.getRange("M1:O1").setValues([["No.", "Summary", "Value"]]);
-    sheet.getRange("M2:N2").setValues([[1, "In (Gross)"]]);
-    sheet.getRange("M3:N3").setValues([[2, "Out (Gross)"]]);
-    sheet.getRange("M4:N4").setValues([[3, "Total Back"]]);
-    sheet.getRange("M5:N5").setValues([[4, "Remains"]]);
-  }
+  // === SUMMARY TABLE — ALWAYS re-apply labels ===
+  sheet.getRange("M1:O1").setValues([["No.", "Summary", "Value"]]);
+  sheet.getRange("M2:N2").setValues([[1, "In (Gross)"]]);
+  sheet.getRange("M3:N3").setValues([[2, "Out (Gross)"]]);
+  sheet.getRange("M4:N4").setValues([[3, "Total Back"]]);
+  sheet.getRange("M5:N5").setValues([[4, "Remains"]]);
 
   // Always re-apply summary formulas (they may break on manual edits)
   sheet.getRange("O2").setFormula('=SUMIFS(F:F;B:B;"In") * -1');
