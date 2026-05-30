@@ -53,7 +53,7 @@ function doPost(e) {
     var rowData = [
       record.id,                    // A: ID
       type,                         // B: Type
-      (record.occurred_at || "").split("T")[0], // C: Date
+      formatDate(record.occurred_at),           // C: Date (DD-MM)
       "",                           // D: Shop (ARRAYFORMULA)
       record.notes || "",           // E: Notes
       record.amount || 0,           // F: Amount
@@ -88,6 +88,14 @@ function doPost(e) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Format date: "2026-05-29T..." → "29-05" */
+function formatDate(isoStr) {
+  if (!isoStr) return "";
+  var parts = isoStr.split("T")[0].split("-");
+  if (parts.length < 3) return isoStr;
+  return parts[2] + "-" + parts[1];
+}
 
 function findRowById(sheet, id) {
   var lastRow = sheet.getLastRow();
