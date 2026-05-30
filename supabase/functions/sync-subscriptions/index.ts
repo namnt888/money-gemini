@@ -7,8 +7,8 @@
  * Finds active subscriptions where next_due <= today,
  * creates transactions for each, and advances next_due.
  *
- * The created transactions will be synced to Google Sheets
- * automatically via the existing sync-to-sheets trigger.
+ * Notes format: "Netflix 05-2026 [200,000/6] slot 1"
+ * shop_source = subscription name (feeds column D via ARRAYFORMULA)
  *
  * Deploy:
  *   supabase functions deploy sync-subscriptions --no-verify-jwt
@@ -33,6 +33,8 @@ interface Subscription {
   day_of_week: number | null;
   notes: string | null;
   next_due: string;
+  slot_number: number | null;
+  total_slots: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +52,41 @@ function corsResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Format helpers
+// ---------------------------------------------------------------------------
+
+/** Format number with comma separator: 200000 → "200,000" */
+function formatAmount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Build notes string:
+ *   "Netflix 05-2026 [200,000/6] slot 1"
+ *
+ * Pattern: "{name} {MM-YYYY} [{price_per_slot}/{total_slots}] slot {n}"
+ */
+function buildNotes(sub: Subscription): string {
+  const due = new Date(sub.next_due + "T00:00:00Z");
+  const mm = String(due.getMonth() + 1).padStart(2, "0");
+  const yyyy = due.getFullYear();
+  const cycleTag = `${mm}-${yyyy}`;
+
+  const pricePerSlot = formatAmount(sub.amount);
+  const totalSlots = sub.total_slots || 1;
+  const slotNum = sub.slot_number || 1;
+
+  let notes = `${sub.name} ${cycleTag} [${pricePerSlot}/${totalSlots}]`;
+
+  // Only show "slot N" if total_slots > 1
+  if (totalSlots > 1) {
+    notes += ` slot ${slotNum}`;
+  }
+
+  return notes;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +186,10 @@ Deno.serve(async (req: Request) => {
 
     for (const sub of subs as Subscription[]) {
       try {
-        // 5a. Create transaction
+        // 5a. Build notes with new format
+        const txnNotes = buildNotes(sub);
+
+        // 5b. Create transaction with shop_source = subscription name
         const { data: txn, error: txnErr } = await supabase
           .from("transactions")
           .insert({
@@ -159,7 +199,8 @@ Deno.serve(async (req: Request) => {
             category_id: sub.category_id,
             person_id: sub.person_id,
             occurred_at: sub.next_due + "T00:00:00Z",
-            notes: sub.notes || `Auto-generated from subscription: ${sub.name}`,
+            notes: txnNotes,
+            shop_source: sub.name,
             raw_input: `[subscription:${sub.id}]`,
             status: "posted",
           })
@@ -171,11 +212,11 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // 5b. Compute next_due for next cycle
+        // 5c. Compute next_due for next cycle
         const currentDue = new Date(sub.next_due + "T00:00:00Z");
         const nextDue = advanceDate(currentDue, sub.frequency, sub.day_of_month);
 
-        // 5c. Update subscription
+        // 5d. Update subscription
         const { error: updErr } = await supabase
           .from("subscriptions")
           .update({
