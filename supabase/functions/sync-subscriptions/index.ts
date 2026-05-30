@@ -36,6 +36,7 @@ interface Subscription {
   next_due: string;
   slot_number: number | null;
   total_slots: number | null;
+  prepaid_until: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,12 +171,13 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const today = toDateString(new Date());
 
-    // 4. Find active subscriptions due today or earlier
+    // 4. Find active subscriptions due today or earlier (exclude prepaid)
     const { data: subs, error: subErr } = await supabase
       .from("subscriptions")
       .select("*")
       .eq("is_active", true)
-      .lte("next_due", today);
+      .lte("next_due", today)
+      .or(`prepaid_until.is.null,prepaid_until.lt.${today}`);
 
     if (subErr) {
       throw new Error(`Subscriptions query failed: ${subErr.message}`);
