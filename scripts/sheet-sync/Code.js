@@ -12,7 +12,7 @@
 
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
-  ui.createMenu('Money Flow')
+  ui.createMenu('Flow')
     .addItem('Push Manual Rows to DB', 'pushManualToDB')
     .addToUi();
 }
@@ -39,6 +39,8 @@ function pushManualToDB() {
   var manualRows = [];
   var totalIn = 0;
   var totalOut = 0;
+  var inCount = 0;
+  var outCount = 0;
 
   for (var i = 0; i < data.length; i++) {
     var id = data[i][0];        // A: ID
@@ -47,11 +49,13 @@ function pushManualToDB() {
 
     // Find rows with empty ID (manual input)
     if (!id || id === '') {
-      manualRows.push(i + 2); // row number (1-indexed)
+      manualRows.push({ row: i + 2, type: type, amount: amount });
       if (type === 'In') {
         totalIn += amount;
+        inCount++;
       } else {
         totalOut += amount;
+        outCount++;
       }
     }
   }
@@ -61,10 +65,29 @@ function pushManualToDB() {
     return;
   }
 
-  // Mark rows as synced
+  // Format + mark rows as synced
   for (var j = 0; j < manualRows.length; j++) {
-    sheet.getRange(manualRows[j], 1).setValue('synced-lump-sum');
+    var r = manualRows[j].row;
+    var rowRange = sheet.getRange(r, 1, 1, 11);
+
+    // Apply border
+    rowRange.setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    rowRange.setFontSize(11);
+
+    // Color: green for In, default for Out
+    if (manualRows[j].type === 'In') {
+      rowRange.setBackground('#dcfce7');
+    }
+
+    // Mark as synced (column A)
+    sheet.getRange(r, 1).setValue('synced-lump-sum');
   }
+
+  // Build summary notes
+  var summaryParts = [];
+  if (totalIn > 0) summaryParts.push(inCount + ' In: ' + totalIn.toLocaleString());
+  if (totalOut > 0) summaryParts.push(outCount + ' Out: ' + totalOut.toLocaleString());
+  var summaryNotes = 'Lump sum ' + cycle + ' [' + summaryParts.join(', ') + '] - manual';
 
   // Call lump-sum API for In transactions
   if (totalIn > 0) {
@@ -72,7 +95,7 @@ function pushManualToDB() {
       cycle: cycle,
       amount: totalIn,
       type: 'income',
-      notes: 'Gộp tay trên Sheet ' + cycle + ' (' + manualRows.length + ' rows)'
+      notes: summaryNotes
     };
     // TODO: Replace with actual API URL
     // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
@@ -88,7 +111,7 @@ function pushManualToDB() {
       cycle: cycle,
       amount: totalOut,
       type: 'expense',
-      notes: 'Gộp tay trên Sheet ' + cycle + ' (' + manualRows.length + ' rows)'
+      notes: summaryNotes
     };
     // TODO: Replace with actual API URL
     // UrlFetchApp.fetch('https://your-app.vercel.app/api/transactions/lump-sum', {
@@ -103,7 +126,8 @@ function pushManualToDB() {
     'Manual rows: ' + manualRows.length + '\n' +
     'Total In: ' + totalIn.toLocaleString() + '\n' +
     'Total Out: ' + totalOut.toLocaleString() + '\n' +
-    'Cycle: ' + cycle
+    'Cycle: ' + cycle + '\n\n' +
+    'Notes: ' + summaryNotes
   );
 }
 
