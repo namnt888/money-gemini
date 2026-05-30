@@ -132,6 +132,8 @@ function applyAllFormatting(sheet) {
 
   // Color + border each data row individually (only rows with actual data)
   var types = sheet.getRange(2, 2, numRows, 1).getValues();
+  var backgrounds = sheet.getRange(2, 1, numRows, 1).getBackgrounds();
+
   for (var i = 0; i < numRows; i++) {
     var row = i + 2;
     var rowRange = sheet.getRange(row, 1, 1, 11);
@@ -142,12 +144,19 @@ function applyAllFormatting(sheet) {
     // Font
     rowRange.setFontSize(11);
 
-    // Background by type
-    if (types[i][0] === "In") {
-      rowRange.setBackground("#dcfce7");
-    } else {
-      rowRange.setBackground(null);
+    // Preserve manual highlighting (yellow, custom colors)
+    // Only apply type-based color if background is default (white/null) or system green
+    var currentBg = backgrounds[i][0];
+    var isManualHighlight = currentBg && currentBg !== "#dcfce7" && currentBg !== "#ffffff" && currentBg !== "";
+
+    if (!isManualHighlight) {
+      if (types[i][0] === "In") {
+        rowRange.setBackground("#dcfce7");
+      } else {
+        rowRange.setBackground(null);
+      }
     }
+    // else: keep manual highlight (yellow, etc.)
   }
 
   // Summary borders (M2:O5) — all sides + inner lines, black
