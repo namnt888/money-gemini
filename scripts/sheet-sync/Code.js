@@ -156,7 +156,8 @@ function applyAllFormatting(sheet) {
   sheet.getRange("O2:O5").setNumberFormat("#,##0");
   sheet.getRange("M5:O5").setBackground("#fce7f3").setFontWeight("bold");
 
-  // Auto-resize column E (Notes) to fit longest content
+  // Auto-resize column E (Notes) to fit longest content (no wrap, expand width)
+  sheet.getRange("E2:E1000").setWrap(false);
   sheet.autoResizeColumn(5);
 }
 
@@ -207,8 +208,6 @@ function ensureSetup(sheet) {
   sheet.getRange("D2:D1000").setHorizontalAlignment("center");
   // Right align for amount columns
   sheet.getRange("F2:F1000").setHorizontalAlignment("right");
-  // Wrap text for Notes column (E)
-  sheet.getRange("E2:E1000").setWrap(true);
   sheet.getRange("G2:G1000").setHorizontalAlignment("right");
   sheet.getRange("H2:H1000").setHorizontalAlignment("right");
   sheet.getRange("I2:I1000").setHorizontalAlignment("right");
