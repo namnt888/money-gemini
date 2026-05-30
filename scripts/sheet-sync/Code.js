@@ -53,7 +53,7 @@ function doPost(e) {
     var rowData = [
       record.id,                    // A: ID
       type,                         // B: Type
-      (record.occurred_at || "").split("T")[0], // C: Date
+      formatDate(record.occurred_at),           // C: Date (DD-MM)
       "",                           // D: Shop (ARRAYFORMULA)
       record.notes || "",           // E: Notes
       record.amount || 0,           // F: Amount
@@ -88,6 +88,14 @@ function doPost(e) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Format date: "2026-05-29T..." → "29-05" */
+function formatDate(isoStr) {
+  if (!isoStr) return "";
+  var parts = isoStr.split("T")[0].split("-");
+  if (parts.length < 3) return isoStr;
+  return parts[2] + "-" + parts[1];
+}
 
 function findRowById(sheet, id) {
   var lastRow = sheet.getLastRow();
@@ -132,6 +140,8 @@ function applyAllFormatting(sheet) {
 
   // Color + border each data row individually (only rows with actual data)
   var types = sheet.getRange(2, 2, numRows, 1).getValues();
+  var backgrounds = sheet.getRange(2, 1, numRows, 1).getBackgrounds();
+
   for (var i = 0; i < numRows; i++) {
     var row = i + 2;
     var rowRange = sheet.getRange(row, 1, 1, 11);
@@ -142,12 +152,19 @@ function applyAllFormatting(sheet) {
     // Font
     rowRange.setFontSize(11);
 
-    // Background by type
-    if (types[i][0] === "In") {
-      rowRange.setBackground("#dcfce7");
-    } else {
-      rowRange.setBackground(null);
+    // Preserve manual highlighting (yellow, custom colors)
+    // Only apply type-based color if background is default (white/null) or system green
+    var currentBg = backgrounds[i][0];
+    var isManualHighlight = currentBg && currentBg !== "#dcfce7" && currentBg !== "#ffffff" && currentBg !== "";
+
+    if (!isManualHighlight) {
+      if (types[i][0] === "In") {
+        rowRange.setBackground("#dcfce7");
+      } else {
+        rowRange.setBackground(null);
+      }
     }
+    // else: keep manual highlight (yellow, etc.)
   }
 
   // Summary borders (M2:O5) — all sides + inner lines, black
@@ -155,6 +172,10 @@ function applyAllFormatting(sheet) {
   sheet.getRange("M2:O5").setFontSize(11);
   sheet.getRange("O2:O5").setNumberFormat("#,##0");
   sheet.getRange("M5:O5").setBackground("#fce7f3").setFontWeight("bold");
+
+  // Auto-resize column E (Notes) to fit longest content (no wrap, expand width)
+  sheet.getRange("E2:E1000").setWrap(false);
+  sheet.autoResizeColumn(5);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,10 +189,14 @@ function ensureSetup(sheet) {
     sheet.getRange("A1:K1").setValues([headers]);
     sheet.setFrozenRows(1);
 
-    // Hide A and K
+    // Hide A and K (always, not just on first setup)
     sheet.hideColumns(1);
     sheet.hideColumns(11);
   }
+
+  // Always ensure A and K are hidden (in case sheet was unhidden manually)
+  try { sheet.hideColumns(1); } catch (e) {}
+  try { sheet.hideColumns(11); } catch (e) {}
 
   // Always re-apply header style (in case sheet was manually edited)
   sheet.getRange("A1:K1")
@@ -185,7 +210,7 @@ function ensureSetup(sheet) {
   sheet.setColumnWidth(2, 50);   // B: Type
   sheet.setColumnWidth(3, 85);   // C: Date
   sheet.setColumnWidth(4, 80);   // D: Shop (compact)
-  sheet.setColumnWidth(5, 180);  // E: Notes
+  // E: Notes — auto-resize to fit content (see applyAllFormatting)
   sheet.setColumnWidth(6, 100);  // F: Amount
   sheet.setColumnWidth(7, 55);   // G: % Back
   sheet.setColumnWidth(8, 75);   // H: đ Back

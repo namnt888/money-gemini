@@ -1,25 +1,35 @@
-Coding Rules cho Money Flow v2
+Coding Rules & Workflow cho Money Flow v2
 
 1. Triết lý chung
 
-AI-First: Ứng dụng ưu tiên nhập liệu bằng text/CLI (qua Obsidian hoặc Chat), form UI chỉ dùng khi cần chỉnh sửa hoặc fallback.
+AI-First: Ưu tiên nhập liệu bằng text/CLI.
 
-Single Source of Truth: Bảng transactions là gốc. Không bao giờ lưu cứng current_balance trong bảng accounts, phải tính toán động (compute) từ lịch sử giao dịch.
+Single Source of Truth: Bảng transactions là gốc.
 
-Minimalism: Code UI đơn giản, sạch sẽ, tập trung vào tốc độ và luồng dữ liệu.
+Minimalism: Code UI đơn giản.
 
 2. Quy ước Database (Supabase)
 
-Sử dụng UUID cho tất cả các Primary Key (id).
+UUID cho Primary Key.
 
-Mọi số tiền (amount, balance) đều lưu ở định dạng số nguyên BIGINT (VND, không có số thập phân) và LUÔN DƯƠNG. Chiều dòng tiền (vào/ra) được quyết định bởi trường type của giao dịch.
+amount là BIGINT, luôn dương.
 
-Tránh lạm dụng JSONB cho dữ liệu có tính quan hệ, ngoại trừ các config phức tạp như cashback_policy.
+Tránh lạm dụng JSONB cho quan hệ.
 
 3. Quy ước Frontend (Next.js)
 
-Sử dụng Next.js App Router mặc định với thư mục src.
+App Router (src/app).
 
-Server Components (RSC) mặc định. Chỉ dùng "use client" khi thực sự cần state (useState) hoặc tương tác UI (onClick).
+Server Components mặc định.
 
-Styling bằng Tailwind CSS và shadcn/ui.
+Tailwind CSS & shadcn/ui.
+
+4. Git Workflow & Convention (BẮT BUỘC)
+
+Branch Naming: feat/ten-chuc-nang (tính năng mới), fix/ten-loi (sửa lỗi), chore/ten-viec (cấu hình/linh tinh).
+
+Commit Message: Dùng Conventional Commits: feat(scope): message, fix(scope): message.
+
+Trước khi code bất cứ task nào, phải tạo nhánh mới: git checkout -b <branch-name>.
+
+Code xong phải add và commit: git add . && git commit -m "...".
