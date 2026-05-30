@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (payload.type !== "INSERT" && payload.type !== "DELETE") {
+    if (payload.type !== "INSERT" && payload.type !== "DELETE" && payload.type !== "UPDATE") {
       return corsResponse({
         skipped: true,
         reason: `Ignored: type=${payload.type}`,
