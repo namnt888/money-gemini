@@ -11,6 +11,13 @@
 // ---------------------------------------------------------------------------
 
 function onOpen() {
+  // Hide Default tab if it exists
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var defaultSheet = ss.getSheetByName('Default');
+  if (defaultSheet && ss.getSheets().length > 1) {
+    defaultSheet.hideSheet();
+  }
+
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('Flow')
     .addItem('Push Manual Rows to DB', 'pushManualToDB')
@@ -215,10 +222,10 @@ function doPost(e) {
     // 3. TÌM ROW THEO ID
     var rowIndex = findRowById(sheet, record.id);
 
-    // 4. DELETE
+    // 4. DELETE — shift A:K only, preserve M:O summary
     if (action === "DELETE" || record.status === "void") {
       if (rowIndex > -1) {
-        sheet.deleteRow(rowIndex);
+        deleteRowSafe(sheet, rowIndex);
       }
       return ContentService.createTextOutput(JSON.stringify({ success: true, action: "deleted" })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -280,6 +287,34 @@ function formatDate(isoStr) {
   var parts = isoStr.split("T")[0].split("-");
   if (parts.length < 3) return isoStr;
   return parts[2] + "-" + parts[1];
+}
+
+/**
+ * Delete a row by shifting A:K up, preserving M:O summary table.
+ * Instead of sheet.deleteRow() which removes the entire row,
+ * this clears the target row and shifts data from below.
+ */
+function deleteRowSafe(sheet, rowIndex) {
+  var lastDataRow = getLastDataRow(sheet);
+
+  // If deleting the last row, just clear it
+  if (rowIndex === lastDataRow) {
+    sheet.getRange(rowIndex, 1, 1, 11).clearContent();
+    return;
+  }
+
+  // Copy data from rows below up by 1 (A:K only)
+  var numRowsToShift = lastDataRow - rowIndex;
+  var dataToShift = sheet.getRange(rowIndex + 1, 1, numRowsToShift, 11).getValues();
+
+  // Clear the target row first
+  sheet.getRange(rowIndex, 1, 1, 11).clearContent();
+
+  // Write shifted data (A:K only)
+  sheet.getRange(rowIndex, 1, numRowsToShift, 11).setValues(dataToShift);
+
+  // Clear the last row (now duplicate)
+  sheet.getRange(lastDataRow, 1, 1, 11).clearContent();
 }
 
 function findRowById(sheet, id) {
